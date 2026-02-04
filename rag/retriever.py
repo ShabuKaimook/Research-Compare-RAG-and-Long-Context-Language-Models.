@@ -41,6 +41,7 @@ def advanced_retrieve_context(
         all_sources.update(result["sources"])
 
     print("Multi-query retrieved chunks:", len(all_results))
+    print("Multi-query")
     print("Multi-query retrieved sources:", all_sources)
 
     # 3. deduplicate chunks
@@ -51,9 +52,8 @@ def advanced_retrieve_context(
         return "", []
 
     # merge heading chunks
-    if len(unique_chunks) <= top_k:
-        unique_chunks = merge_heading_chunks(unique_chunks)
-        print("After merge heading:", len(unique_chunks))
+    unique_chunks = merge_heading_chunks(unique_chunks)
+    print("After merge heading:", len(unique_chunks))
 
     # 4. rerank chunks
     if len(unique_chunks) <= top_k:

@@ -5,24 +5,31 @@ from dotenv import load_dotenv
 import os
 
 from vector_db import QdrantStorage
-from rag.retriever import advanced_retrieve_context
-from rag.ingest_file import ingest_file
+from rag.retriever import advanced_retrieve_context, retrieve_context
+# from rag.ingest_file import ingest_file
 
 load_dotenv()
 
 llm = ChatOpenAI(
     model_name=os.getenv("OPENAI_MODEL"),
-    temperature=0.2,
+    temperature=1,
     api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 prompt = ChatPromptTemplate.from_template(
     """You are a helpful assistant.
+
 You may translate the question if needed.
 Answer the question using ONLY the context below.
+
 If the context does not directly answer the question,
 you may summarize or explain based on the information available.
-If the context is completely unrelated, say "I don't know".
+
+If the question ask to translate the context to another language, you may translate the context to the language asked.
+
+If the question ask in the language that different from the context, when you answer, you should translate the answer to the language asked.
+
+If the context is completely unrelated, say "The question is unrelated to the context".
 
 Context:
 {context}
@@ -35,6 +42,28 @@ Question:
 chain = prompt | llm | StrOutputParser()
 
 db = QdrantStorage(collection_name="docs")
+
+
+def ask_ai_normal(question: str):
+    context, sources = retrieve_context(question, db)
+
+    if not context:
+        return {
+            "answer": "I don't know",
+            "sources": [],
+        }
+
+    answer = chain.invoke(
+        {
+            "context": context,
+            "question": question,
+        }
+    )
+
+    return {
+        "answer": answer,
+        "sources": sources,
+    }
 
 
 def ask_ai(question: str):

@@ -15,7 +15,8 @@ Chunks:
 
 Rules:
 - Prefer explanatory text.
-- Avoid image captions, diagrams, or figure descriptions.
+- Prefer explanatory or instructional text.
+- If the chunk contains examples or formulas, it is acceptable.
 - Return the FULL TEXT of the best chunks.
 - Separate chunks with ---.
 """

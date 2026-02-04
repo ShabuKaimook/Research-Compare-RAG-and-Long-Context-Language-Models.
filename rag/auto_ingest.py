@@ -2,7 +2,6 @@ from pathlib import Path
 from rag.ingest_file import ingest_file
 
 UPLOAD_DIR = Path("./assets")
-MARK_SUFFIX = ".ingested"
 
 
 def auto_ingest(db):
@@ -16,7 +15,7 @@ def auto_ingest(db):
         if file.suffix.lower() not in {".pdf", ".txt", ".html"}:
             continue
 
-        marker = file.with_suffix(file.suffix + MARK_SUFFIX)
+        marker = file.with_suffix(file.suffix)
         if marker.exists():
             continue  # already ingested
 
