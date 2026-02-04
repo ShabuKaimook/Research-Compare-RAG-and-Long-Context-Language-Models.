@@ -1,0 +1,10 @@
+__pycache__
+.venv
+.git
+.gitignore
+.env
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+upload/*

@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from chat import ask_ai
+from rag.auto_ingest import auto_ingest
 
 load_dotenv()
 
@@ -54,6 +55,11 @@ class UploadResponse(BaseModel):
     filename: str
     size: float
     message: str
+
+@app.on_event("startup")
+def startup_event():
+    print("🚀 Auto ingest on startup")
+    auto_ingest(db)
 
 # Routes
 @app.get("/")

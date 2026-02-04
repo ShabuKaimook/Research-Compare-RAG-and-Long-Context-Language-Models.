@@ -5,12 +5,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class QdrantStorage:
     # collection_name is the name of the collection
     # dim is the dimension of the vector
     def __init__(
         self,
-        url="http://localhost:6333",
+        url=os.getenv("QDRANT_URL", "http://localhost:6333"),
         collection_name="docs",
         dim=os.getenv("EMBED_DIM", 1536),
     ):

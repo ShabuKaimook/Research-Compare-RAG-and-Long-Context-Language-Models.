@@ -1,8 +1,9 @@
 import streamlit as st
 import requests
 from pathlib import Path
+import os
 
-FASTAPI_URL = "http://0.0.0.0:8000"
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://0.0.0.0:8000")
 
 st.set_page_config(page_title="File Management", page_icon="📂")
 

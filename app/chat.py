@@ -1,7 +1,8 @@
 import streamlit as st
 import requests
+import os
 
-FASTAPI_URL = "http://0.0.0.0:8000"
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://0.0.0.0:8000")
 
 st.set_page_config(
     page_title="RAG Chat App",

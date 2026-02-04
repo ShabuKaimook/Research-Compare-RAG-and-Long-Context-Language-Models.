@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - EMBED_DIM=${EMBED_DIM}
+    depends_on:
+      - qdrant
+
+  frontend:
+    build: .
+    command: streamlit run app/chat.py
+    volumes:
+      - .:/app
+    ports:
+      - "8501:8501"
+    environment:
+      - FASTAPI_URL=http://backend:8000
+    depends_on:
+      - backend
+
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  qdrant_data:
