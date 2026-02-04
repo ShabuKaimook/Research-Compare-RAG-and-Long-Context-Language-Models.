@@ -3,3 +3,5 @@ upload/
 qdrant_data/
 *.pdf
 *.html
+
+.venv

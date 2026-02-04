@@ -1,11 +1,13 @@
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_community.callbacks.manager import get_openai_callback
 from dotenv import load_dotenv
 import os
+import time
 
 from vector_db import QdrantStorage
-from rag.retriever import advanced_retrieve_context, retrieve_context
+from rag.retriever import advanced_retrieve_context
 # from rag.ingest_file import ingest_file
 
 load_dotenv()
@@ -13,6 +15,7 @@ load_dotenv()
 llm = ChatOpenAI(
     model_name=os.getenv("OPENAI_MODEL"),
     temperature=1,
+    streaming=True,
     api_key=os.getenv("OPENAI_API_KEY"),
 )
 
@@ -43,30 +46,8 @@ chain = prompt | llm | StrOutputParser()
 
 db = QdrantStorage(collection_name="docs")
 
-
-def ask_ai_normal(question: str):
-    context, sources = retrieve_context(question, db)
-
-    if not context:
-        return {
-            "answer": "I don't know",
-            "sources": [],
-        }
-
-    answer = chain.invoke(
-        {
-            "context": context,
-            "question": question,
-        }
-    )
-
-    return {
-        "answer": answer,
-        "sources": sources,
-    }
-
-
 def ask_ai(question: str):
+    start_time = time.time()
     context, sources = advanced_retrieve_context(question, db)
 
     print("Retrieved context:", context[:100])
@@ -75,22 +56,43 @@ def ask_ai(question: str):
         return {
             "answer": "I don't know",
             "sources": [],
+            "tokens": 0,
+            "latency": 0,
         }
 
-    answer = chain.invoke(
-        {
-            "context": context,
-            "question": question,
-        }
-    )
+    with get_openai_callback() as cb:
+        answer = chain.invoke(
+            {
+                "context": context,
+                "question": question,
+            }
+        )
 
     print("Answer in chat.py:", answer)
     
-
+    latency = time.time() - start_time
     return {
         "answer": answer,
         "sources": sources,
+        "tokens": {
+            "prompt_tokens": cb.prompt_tokens,
+            "completion_tokens": cb.completion_tokens,
+            "total_tokens": cb.total_tokens,
+            "cost_usd": cb.total_cost,
+        },
+        "latency_seconds": round(latency, 3),
     }
+
+def stream_answer(context: str, question: str):
+    messages = [
+        {"role": "system", "content": "Answer using the context only"},
+        {"role": "user", "content": f"Context:\n{context}\n\nQuestion:\n{question}"},
+    ]
+
+    for chunk in llm.stream(messages):
+        if chunk.content:
+            yield chunk.content
+
 
 
 # if __name__ == "__main__":
