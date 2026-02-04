@@ -1,229 +1,190 @@
-import logging
-import os
-import uuid
-from dotenv import load_dotenv
-
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
-from openai import OpenAI
-from fastapi.responses import StreamingResponse
-import json
-import time
-
-import inngest
-import inngest.fast_api
-
-from data_loader import load_and_chunk_pdf, embed_texts
+from typing import List
+import os
+from pathlib import Path
+from rag.ingest_file import ingest_file
 from vector_db import QdrantStorage
-from custom_types import (
-    RAGChunkAndSrc,
-    RAGUpsertResult,
-)
-
-# Config
+from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+from chat import ask_ai
 
 load_dotenv()
 
-AI_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
-BASE_URL = "https://openrouter.ai/api/v1"
-
-# OpenAI client (OpenRouter)
-openai_client = OpenAI(
-    base_url=BASE_URL,
-    api_key=os.getenv("OPENROUTER_API_KEY"),
+# Initialize FastAPI app
+app = FastAPI(
+    title="RAG Chat API",
+    description="API for uploading documents and asking questions",
+    version="1.0.0"
 )
 
-# Inngest client (for ingestion only)
-inngest_client = inngest.Inngest(
-    app_id="rag_app",
-    logger=logging.getLogger("uvicorn"),
-    is_production=False,
-    serializer=inngest.PydanticSerializer(),
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+# Initialize database
+db = QdrantStorage(collection_name="docs")
 
-# Inngest Function: PDF Ingestion (BACKGROUND)
-@inngest_client.create_function(
-    fn_id="RAG: Inngest PDF",
-    trigger=inngest.TriggerEvent(event="rag/inngest_pdf"),
-)
+# Upload directory
+UPLOAD_DIR = "./upload"
+Path(UPLOAD_DIR).mkdir(exist_ok=True)
 
-# run the function that in rag_inngest_pdf
-async def rag_inngest_pdf(ctx: inngest.Context):
-    def _load(ctx: inngest.Context) -> RAGChunkAndSrc:
-        # get source_id from event data or use pdf_path as source_id
-        pdf_path = ctx.event.data["pdf_path"]
-        source_id = ctx.event.data.get("source_id", pdf_path)
-        chunks = load_and_chunk_pdf(pdf_path)
-        return RAGChunkAndSrc(chunks=chunks, source_id=source_id)
+# files in upload
+files = [p for p in Path(UPLOAD_DIR).iterdir() if p.is_file()]
 
-    # upsert the chunks to the vector database (Qdrant)
-    def _upsert(chunks_and_src: RAGChunkAndSrc) -> RAGUpsertResult:
-        chunks = chunks_and_src.chunks
-        source_id = chunks_and_src.source_id
+for file in files:
+    print(str(file))
+    ingest_file(str(file), db)
 
-        vectors = embed_texts(chunks)
-        ids = [
-            str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source_id}:{i}"))
-            for i in range(len(chunks))
-        ]
-        payloads = [
-            {"source": source_id, "text": chunks[i]} for i in range(len(chunks))
-        ]
-
-        QdrantStorage().upsert(ids, vectors, payloads)
-        return RAGUpsertResult(ingested=len(chunks))
-
-    # load-and-chuck is the name of the step
-    # ctx.step.run is the function that run the step like _load in inngest
-    chunks_and_src = await ctx.step.run(
-        "load-and-chunk",
-        lambda: _load(ctx),
-        output_type=RAGChunkAndSrc,
-    )
-
-    ingested = await ctx.step.run(
-        "embed-and-upsert",
-        lambda: _upsert(chunks_and_src),
-        output_type=RAGUpsertResult,
-    )
-
-    # take the pandantic model and convert it to a dictionary
-    return ingested.model_dump()
-
-
-# FastAPI App
-app = FastAPI(title="RAG API")
-
-
-# Sync RAG Chat Endpoint (FAST)
-class RAGQueryRequest(BaseModel):
+# Pydantic models
+class QuestionRequest(BaseModel):
     question: str
-    top_k: int = 3
 
+class ChatResponse(BaseModel):
+    answer: str
+    sources: List[str]
 
-@app.post("/rag/query")
-async def rag_query_sync(payload: RAGQueryRequest):
-    # embed the question, store to qdrant and get the vector
-    query_vector = embed_texts([payload.question])[0]
+class UploadResponse(BaseModel):
+    filename: str
+    size: float
+    message: str
 
-    # found will get the context and sources from the search function
-    store = QdrantStorage()
-    found = store.search(query_vector, payload.top_k)
-
-    contexts = found.get("contexts", [])
-    if not contexts:
-        return {
-            "answer": "No documents found. Please ingest a PDF first.",
-            "sources": [],
-            "num_contexts": 0,
-        }
-
-    # prompt the LLM with the context and question
-    context_block = "\n\n".join(f"- {c}" for c in contexts)
-    user_content = (
-        "Use the context below to answer the question.\n\n"
-        f"{context_block}\n\n"
-        f"Question: {payload.question}"
-    )
-
-    # call the LLM
-    completion = openai_client.chat.completions.create(
-        model=AI_MODEL,
-        messages=[
-            {"role": "system", "content": "Answer only from context"},
-            {"role": "user", "content": user_content},
-        ],
-        max_tokens=1024,
-        temperature=0.2,
-    )
-
-    answer = completion.choices[0].message.content.strip()
-
+# Routes
+@app.get("/")
+def read_root():
+    """Welcome endpoint"""
     return {
-        "answer": answer,
-        "sources": found.get("sources", []),
-        "num_contexts": len(contexts),
+        "message": "Welcome to RAG Chat API",
+        "endpoints": {
+            "upload": "/upload",
+            "ask": "/ask",
+            "files": "/files",
+            "health": "/health",
+            "docs": "/docs"
+        }
     }
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "database": "connected"
+    }
 
-@app.post("/rag/query/stream")
-async def rag_query_stream(payload: RAGQueryRequest):
-    t_start = time.perf_counter()
-
-	# embed the question, store to qdrant and get the vector
-    query_vector = embed_texts([payload.question])[0]
-    store = QdrantStorage()
-
-	# found will get the context and sources from the search function
-    found = store.search(query_vector, payload.top_k)
-
-    context_block = "\n\n".join(f"- {c}" for c in found["contexts"])
-    prompt = (
-        "Use the context below to answer the question.\n"
-        "If math is used, output LaTeX using $$ ... $$ only.\n\n"
-        f"{context_block}\n\n"
-        f"Question: {payload.question}"
-		"Answer concisely using the context above."
-    )
-
-    t_first_token = None
-
-    def generator():
-        nonlocal t_first_token
-
-        stream = openai_client.chat.completions.create(
-            model=AI_MODEL,
-            messages=[
-                {"role": "system", "content": "Answer only from the given context."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-            max_tokens=1024,
-            stream=True,
+@app.post("/files/upload", response_model=UploadResponse)
+async def upload_file(file: UploadFile = File(...)):
+    """
+    Upload a PDF or TXT file and ingest it into the vector database.
+    
+    Supported formats:
+    - PDF (.pdf)
+    - Text (.txt)
+    """
+    try:
+        # Validate file type
+        allowed_extensions = {".pdf", ".txt"}
+        file_ext = Path(file.filename).suffix.lower()
+        
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type {file_ext} not allowed. Use .pdf or .txt"
+            )
+        
+        # Save file
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_path, "wb") as f:
+            contents = await file.read()
+            f.write(contents)
+        
+        # Ingest file to database
+        ingest_file(file_path, db)
+        
+        file_size = os.path.getsize(file_path) / 1024
+        
+        return UploadResponse(
+            filename=file.filename,
+            size=file_size,
+            message="File uploaded and processed successfully"
         )
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                if t_first_token is None:
-                    t_first_token = time.perf_counter()
-                    backend_ttfb = t_first_token - t_start
-                yield f"<<TTFB:{backend_ttfb:.3f}>>"
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: QuestionRequest):
+    """
+    Ask a question about the uploaded documents.
+    
+    Uses advanced retrieval with query rewriting, deduplication, and re-ranking.
+    """
+    try:
+        if not request.question.strip():
+            raise HTTPException(status_code=400, detail="Question cannot be empty")
+        
+        result = ask_ai(request.question)
 
-            yield delta.content
+        print("Answer:", result["answer"])
+        print("Sources:", result["sources"])
+        
+        return ChatResponse(
+            answer=result["answer"],
+            sources=result["sources"]
+        )
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        # หลัง stream จบ ค่อยวัด total
-        t_end = time.perf_counter()
-        backend_total = t_end - t_start
-        yield f"<<TOTAL:{backend_total:.3f}>>"
-
-    def headers():
-        t_end = time.perf_counter()
+@app.get("/files")
+def list_files():
+    """
+    List all uploaded files in the database
+    """
+    try:
+        files = []
+        if os.path.exists(UPLOAD_DIR):
+            for file in os.listdir(UPLOAD_DIR):
+                file_path = os.path.join(UPLOAD_DIR, file)
+                if os.path.isfile(file_path):
+                    file_size = os.path.getsize(file_path) / 1024
+                    files.append({
+                        "name": file,
+                        "size_kb": round(file_size, 2)
+                    })
+        
         return {
-            "X-Sources": json.dumps(found["sources"]),
-            "X-Backend-Total-Time": f"{t_end - t_start:.3f}",
-            "X-Backend-TTFB": (
-                f"{t_first_token - t_start:.3f}" if t_first_token else "N/A"
-            ),
+            "total_files": len(files),
+            "files": sorted(files, key=lambda x: x["name"])
         }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.delete("/files/{filename}")
+def delete_file(filename: str):
+    """
+    Delete a file from the upload directory
+    """
+    try:
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            return {"message": f"File '{filename}' deleted successfully."}
+        else:
+            raise HTTPException(status_code=404, detail="File not found.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return StreamingResponse(
-        generator(),
-        media_type="text/plain",
-        headers=headers(),
-    )
-
-
-# Health check
-@app.get("/")
-def health():
-    return {"status": "ok"}
-
-
-# Serve Inngest + FastAPI together
-inngest.fast_api.serve(
-    app,
-    inngest_client,
-    functions=[rag_inngest_pdf],
-)
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

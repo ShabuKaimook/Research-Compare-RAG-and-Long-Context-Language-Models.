@@ -1,7 +1,9 @@
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
 class QdrantStorage:
     # collection_name is the name of the collection
@@ -10,7 +12,7 @@ class QdrantStorage:
         self,
         url="http://localhost:6333",
         collection_name="docs",
-        dim=int(os.getenv("EMBED_DIM", "1536")),
+        dim=os.getenv("EMBED_DIM", 1536),
     ):
         self.client = QdrantClient(url=url, timeout=30)
 
@@ -42,19 +44,25 @@ class QdrantStorage:
 
     # top_k is the number of results to return
     # query_vector is the embedding of the query
-    def search(self, query_vector, top_k: int = 5):
-        # search for the most similar documents
-        # results = self.client.search(
-        #     collection_name=self.collection,
-        #     vector=query_vector,
-        #     with_payload=True,
-        #     limit=top_k,
-        # )
+    def search(self, query_vector, top_k: int = 5, source: str | None = None):
+        query_filter = None
+
+        if source:
+            query_filter = {
+                "must": [
+                    {
+                        "key": "source",
+                        "match": {"value": source},
+                    }
+                ]
+            }
+
         response = self.client.query_points(
             collection_name=self.collection,
             query=query_vector,
             limit=top_k,
             with_payload=True,
+            query_filter=query_filter,
         )
 
         response = response.points

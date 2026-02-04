@@ -1,0 +1,14 @@
+langchain-openai
+langchain-core
+langchain-community
+langchain-text-splitters
+qdrant-client
+dotenv
+requests
+lru_cache
+unstructured
+streamlit
+fastapi
+uvicorn
+python-multipart
+watchdog
