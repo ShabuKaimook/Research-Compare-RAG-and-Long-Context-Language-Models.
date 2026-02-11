@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 from langchain_community.callbacks.manager import get_openai_callback
 import time
@@ -37,9 +37,12 @@ class UploadResponse(BaseModel):
 
 router = APIRouter(prefix="/chat/rag", tags=["Rag"])
 
+def get_db(request: Request):
+    return request.app.state.db
+
 
 @router.post("/", response_model=ChatResponse)
-def chat_rag(request: QuestionRequest):
+def chat_rag(request: QuestionRequest, db = Depends(get_db),):
     """
     Ask a question about the uploaded documents.
 
@@ -69,8 +72,8 @@ def chat_rag(request: QuestionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/chat/rag/stream")
-def chat_rag_stream(request: QuestionRequest):
+@router.post("/stream")
+def chat_rag_stream(request: QuestionRequest, db = Depends(get_db)):
     def event_generator():
         start = time.time()
         first_token_time = None
