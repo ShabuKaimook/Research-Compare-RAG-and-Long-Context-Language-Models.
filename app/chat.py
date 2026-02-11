@@ -10,111 +10,146 @@ FASTAPI_URL = os.getenv("FASTAPI_URL", "http://backend:8000")
 # Page config
 # -------------------------
 st.set_page_config(
-    page_title="RAG Chat",
-    page_icon="💬",
+    page_title="RAG vs Long Context",
+    page_icon="🧪",
     layout="wide",
 )
 
-st.title("💬 Chat with Your Documents")
+st.title("🧪 RAG vs Long Context Comparison")
+
+st.caption(
+    "Ask one question. Compare **Retrieval-Augmented Generation** "
+    "vs **Long-Context LLM** in real time."
+)
+
+if st.button("🔄 New question"):
+    st.session_state.last_question = None
+    st.rerun()
 
 # -------------------------
-# Session state
+# Session state (PREVENT DOUBLE RUN)
 # -------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if "last_question" not in st.session_state:
+    st.session_state.last_question = None
 
-# -------------------------
-# Render history
-# -------------------------
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
 
 # -------------------------
-# Chat input
+# Helper: stream reader
 # -------------------------
-question = st.chat_input("Ask a question about your documents...")
+def stream_answer(endpoint: str, question: str, answer_box, meta_box, label: str):
+    buffer = ""
+    full_answer = ""
+    meta_data = None
 
-if question:
-    # ---- User message ----
-    st.session_state.messages.append(
-        {"role": "user", "content": question}
-    )
-    with st.chat_message("user"):
-        st.markdown(question)
+    status = meta_box.empty()
+    status.markdown("🧠 Thinking…")
 
-    # ---- Assistant ----
-    with st.chat_message("assistant"):
-        status = st.empty()
-        answer_box = st.empty()
-        meta_box = st.empty()
+    start = time.time()
+    first_token_time = None
 
-        full_answer = ""
-        meta_data = None
-        buffer = ""              # 🔴 CHANGED: buffer สำหรับรวม stream
+    with requests.post(
+        f"{FASTAPI_URL}{endpoint}",
+        json={"question": question},
+        stream=True,
+        timeout=300,
+    ) as r:
+        r.raise_for_status()
 
-        start_time = time.time()
-        first_token_time = None
+        for chunk in r.iter_content(chunk_size=1024):
+            if not chunk:
+                continue
 
-        status.markdown("🔍 **Searching documents…**")
+            text = chunk.decode("utf-8", errors="ignore")
+            buffer += text
 
-        try:
-            with requests.post(
-                f"{FASTAPI_URL}/chat/stream",
-                json={"question": question},
-                stream=True,
-                timeout=300,
-            ) as r:
+            # ---- META DETECTION ----
+            if "[[META]]" in buffer:
+                content, meta_part = buffer.split("[[META]]", 1)
+                full_answer += content
+                answer_box.markdown(full_answer)
+                meta_data = json.loads(meta_part)
+                break
 
-                r.raise_for_status()
+            if first_token_time is None:
+                first_token_time = time.time()
                 status.empty()
-                status.markdown("🧠 **Thinking…**")
 
-                for chunk in r.iter_content(chunk_size=1024):
-                    if not chunk:
-                        continue
+            full_answer += text
+            answer_box.markdown(full_answer + "▌")
 
-                    text = chunk.decode("utf-8", errors="ignore")
-                    buffer += text   # 🔴 CHANGED
+    answer_box.markdown(full_answer)
+    status.empty()
 
-                    # st.write("RAW CHUNK >>>", repr(text))
+    # ---- META DISPLAY (quiet) ----
+    if meta_data:
+        latency_first = meta_data.get("latency_first_token")
+        latency_total = meta_data.get("latency_total")
+        tokens = meta_data.get("tokens", {})
+        sources = meta_data.get("sources", [])
 
-                    # ---- META BLOCK (ROBUST) ----
-                    if "[[META]]" in buffer:
-                        content, meta_part = buffer.split("[[META]]", 1)
-
-                        # render content ก่อน META
-                        if content:
-                            full_answer += content
-                            answer_box.markdown(full_answer)
-
-                        # parse META
-                        meta_data = json.loads(meta_part)
-                        # print(meta_data)
-                        break  # 🔴 IMPORTANT: stop stream here
-
-                    # ---- First token ----
-                    if first_token_time is None:
-                        first_token_time = time.time()
-                        status.empty()
-
-                    full_answer += text
-                    answer_box.markdown(full_answer + "▌")
-
-            # ---- Done ----
-            status.empty()
-            answer_box.markdown(full_answer)
-
-            # -------------------------
-            # Metadata
-            # -------------------------
-            st.write("Lateny, Tokens, Sources:", meta_data)
-
-            # ---- Save history ----
-            st.session_state.messages.append(
-                {"role": "assistant", "content": full_answer}
+        with meta_box:
+            st.caption(
+                f"⏱️ First token: **{latency_first:.2f}s** · "
+                f"Total: **{latency_total:.2f}s**"
             )
 
-        except Exception as e:
-            status.empty()
-            st.error(f"❌ Error: {e}")
+            if tokens:
+                with st.expander("🧮 Tokens", expanded=False):
+                    st.caption(
+                        f"Prompt: {tokens['prompt_tokens']} | "
+                        f"Completion: {tokens['completion_tokens']} | "
+                        f"Total: {tokens['total_tokens']} | "
+                        f"Cost: ${tokens['cost_usd']:.6f}"
+                    )
+
+            if sources:
+                with st.expander("📚 Sources", expanded=False):
+                    for s in sources:
+                        st.write("-", s)
+
+
+# -------------------------
+# Question input
+# -------------------------
+question = st.text_input(
+    "💬 Ask a question",
+    placeholder="e.g. Tell me about Google in Thai",
+)
+
+if question and question != st.session_state.last_question:
+    st.session_state.last_question = question
+    st.divider()
+
+    col_rag, col_long = st.columns(2)
+
+    # =========================
+    # RAG COLUMN
+    # =========================
+    with col_rag:
+        st.subheader("🔎 RAG")
+        rag_answer = st.empty()
+        rag_meta = st.container()
+
+        stream_answer(
+            endpoint="/chat/rag/stream",
+            question=question,
+            answer_box=rag_answer,
+            meta_box=rag_meta,
+            label="RAG",
+        )
+
+    # =========================
+    # LONG CONTEXT COLUMN
+    # =========================
+    with col_long:
+        st.subheader("🧠 Long Context")
+        long_answer = st.empty()
+        long_meta = st.container()
+
+        stream_answer(
+            endpoint="/chat/long/stream",
+            question=question,
+            answer_box=long_answer,
+            meta_box=long_meta,
+            label="LONG",
+        )

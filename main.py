@@ -1,20 +1,23 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from typing import List
-import os
 from pathlib import Path
-from rag.ingest_file import ingest_file
 from vector_db import QdrantStorage
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from chat import ask_ai, stream_answer
+from fastapi.responses import StreamingResponse
+from langchain_community.callbacks.manager import get_openai_callback
+import time
+import json
+import os
+
+from ai_model.rag import ask_rag, stream_rag
+from rag.ingest_file import ingest_file
 from rag.auto_ingest import auto_ingest
 from rag.retriever import advanced_retrieve_context
-from fastapi.responses import StreamingResponse
-import time
-from langchain_community.callbacks.manager import get_openai_callback
-import json
+from ai_model.long_context import stream_long_context, build_full_context
+from evaluation.api import router as evaluation_router
 
 
 load_dotenv()
@@ -37,6 +40,9 @@ app.add_middleware(
 
 # Initialize database
 db = QdrantStorage(collection_name="docs")
+
+def get_db():
+    return db
 
 # Upload directory
 UPLOAD_DIR = "./upload"
@@ -74,11 +80,12 @@ class UploadResponse(BaseModel):
     size: float
     message: str
 
+app.include_router(evaluation_router)
 
 @app.on_event("startup")
 def startup_event():
     print("🚀 Auto ingest on startup")
-    auto_ingest(db)
+    auto_ingest(db, "./assets")
 
 
 # Routes
@@ -103,8 +110,8 @@ def health_check():
     return {"status": "healthy", "database": "connected"}
 
 
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: QuestionRequest):
+@app.post("/chat/rag", response_model=ChatResponse)
+def chat_rag(request: QuestionRequest):
     """
     Ask a question about the uploaded documents.
 
@@ -114,7 +121,7 @@ def chat(request: QuestionRequest):
         if not request.question.strip():
             raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-        result = ask_ai(request.question)
+        result = ask_rag(request.question, db)
 
         print("Answer:", result["answer"])
         print("Sources:", result["sources"])
@@ -133,8 +140,9 @@ def chat(request: QuestionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/chat/stream")
-def chat_stream(request: QuestionRequest):
+
+@app.post("/chat/rag/stream")
+def chat_rag_stream(request: QuestionRequest):
     def event_generator():
         start = time.time()
         first_token_time = None
@@ -146,16 +154,16 @@ def chat_stream(request: QuestionRequest):
             return
 
         with get_openai_callback() as cb:
-            for token in stream_answer(context, request.question):
+            for token in stream_rag(context, request.question):
                 if first_token_time is None:
                     first_token_time = time.time()
                 yield token
 
         # 🔴 META MUST BE SENT HERE
         meta = {
-            "latency_first_token": round(
-                first_token_time - start, 3
-            ) if first_token_time else None,
+            "latency_first_token": round(first_token_time - start, 3)
+            if first_token_time
+            else None,
             "latency_total": round(time.time() - start, 3),
             "tokens": {
                 "prompt_tokens": cb.prompt_tokens,
@@ -169,6 +177,42 @@ def chat_stream(request: QuestionRequest):
         yield "\n\n[[META]]" + json.dumps(meta)
 
         print("META:", meta)
+
+    return StreamingResponse(event_generator(), media_type="text/plain")
+
+
+@app.post("/chat/long/stream")
+def chat_long_stream(request: QuestionRequest):
+    def event_generator():
+        start = time.time()
+        first_token_time = None
+
+        print("Building full context...")
+        context = build_full_context()
+        if not context.strip():
+            yield "I don't know"
+            return
+        print("Built successfully")
+
+        with get_openai_callback() as cb:
+            for token in stream_long_context(context, request.question):
+                if first_token_time is None:
+                    first_token_time = time.time()
+                yield token
+
+        meta = {
+            "latency_first_token": round(first_token_time - start, 3),
+            "latency_total": round(time.time() - start, 3),
+            "tokens": {
+                "prompt_tokens": cb.prompt_tokens,
+                "completion_tokens": cb.completion_tokens,
+                "total_tokens": cb.total_tokens,
+                "cost_usd": cb.total_cost,
+            },
+            "sources": ["FULL_CONTEXT"],
+        }
+
+        yield "\n\n[[META]]" + json.dumps(meta)
 
     return StreamingResponse(event_generator(), media_type="text/plain")
 

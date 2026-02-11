@@ -1,0 +1,11 @@
+document_index,question
+0,How much health does the Mutant Bullet Kin have?
+0,Where can bishops be found?
+1,What happened on day 10?
+1,What did the goblins say?
+2,Why was the H100 GPU chosen for computation?
+2,Which masked language model was chosen for the AI?
+5,What is step 5?
+5,What is the advice for data scientists in finance companies?
+6,What obligations are robots expected to follow?
+6,How long are the minimum prison sentences for rule breakers?

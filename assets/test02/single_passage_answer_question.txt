@@ -1,0 +1,22 @@
+document_index,question,answer
+0,What do keybullet kin drop?,Keybullet kin drop a key upon death.
+0,What kind of gun does the bandana bullet kin use?,The bandana bullet kin wields a machine pistol.
+1,What do the giants look like?,"One giant is burly, grey-skinned, and 20 feet tall. It wears heavy dark iron armour covered in metal torns. It is leaning against a chamber wall, carrying what looks to be two tower shields nearly as tall as itself, both bearing
+menacing spikes.
+
+The other giant  stands a tall giant in more mobile iron, clutching a dangerous-looking maul the size of Yasha, also leaning and looking disinterested."
+1,What happens on day 2?,"After a few miles of winding tunnel, you emerge in a smaller grotto of stalactites and stalagmites dripping with condensation. Unsure if the same underground river, or another water source, is nearby, you can see quite a bit of ground water does funnel down into this area.
+
+You encounter 2 ropers seeking the next burrowed entrance left by the Kryn."
+2,What were the requirements for the project?,"The tool had the following requirements:
+- Chatbot that you can ask questions and get answers in response (conversational memory is not required).
+- Information is taken from an unstructured text file.
+- It must be able to tell me if it doesnâ€™t know the answer to my question.
+- Fast.
+- Efficient enough to run on my MacBook with other programs without any performance issues.
+- Locally run for privacy and to ensure it will always be free, runnable, and consistent."
+2,What data did was used to test the prototype?,Grace Hopper's Wikipedia page and Alan Turing's Wikipedia page were used to test the prototype.
+5,What are the key topics of this article?,"The key topics of this article are: ""why prioritizing impact matters not just for managers, but also ICs""; ""why focusing on impact is hard""; ""how to maximize your impact""; and ""how to overcome common challenges in driving real impact""."
+5,Do I have to do something all by myself to be acknowledged for it?,"You donâ€™t have to be solely responsible for something in order to take (partial) credit for it. If you provided the analysis that resulted in a pricing change that saved the company millions, then you deserve part of the credit for that impact."
+6,What kinds of models would need to be officially registered?,"High-risk AI systems that are deployed by public authorities or entities acting on their behalf will have to be registered in a public EU database, unless those systems are used for law enforcement and migration. The latter will have to be registered in a non-public part of the database that will be only accessible to relevant supervisory authorities."
+6,"What kinds of AI carry ""systematic risks""?","For now, general purpose AI models that were trained using a total computing power of more than 10^25 FLOPs are considered to carry systemic risks, given that models trained with larger compute tend to be more powerful. The AI Office (established within the Commission) may update this threshold in light of technological advances, and may furthermore in specific cases designate other models as such based on further criteria (e.g. number of users, or the degree of autonomy of the model)."

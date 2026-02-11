@@ -14,7 +14,7 @@ load_dotenv()
 
 llm = ChatOpenAI(
     model_name=os.getenv("OPENAI_MODEL"),
-    temperature=1,
+    temperature=0,
     streaming=True,
     api_key=os.getenv("OPENAI_API_KEY"),
 )
@@ -44,9 +44,10 @@ Question:
 
 chain = prompt | llm | StrOutputParser()
 
-db = QdrantStorage(collection_name="docs")
+# db = QdrantStorage(collection_name="docs")
 
-def ask_ai(question: str):
+
+def ask_rag(question: str, db: QdrantStorage):
     start_time = time.time()
     context, sources = advanced_retrieve_context(question, db)
 
@@ -68,8 +69,8 @@ def ask_ai(question: str):
             }
         )
 
-    print("Answer in chat.py:", answer)
-    
+    print("Answer in rag.py:", answer)
+
     latency = time.time() - start_time
     return {
         "answer": answer,
@@ -83,7 +84,8 @@ def ask_ai(question: str):
         "latency_seconds": round(latency, 3),
     }
 
-def stream_answer(context: str, question: str):
+
+def stream_rag(context: str, question: str):
     messages = [
         {"role": "system", "content": "Answer using the context only"},
         {"role": "user", "content": f"Context:\n{context}\n\nQuestion:\n{question}"},
@@ -94,12 +96,11 @@ def stream_answer(context: str, question: str):
             yield chunk.content
 
 
-
 # if __name__ == "__main__":
 #     ingest_file("./upload/trigon.pdf", db)
 #     ingest_file("./upload/Nvidia.txt", db)
 
-    # result = ask_ai("สรุป trigon ให้ฟังหน่อย")
-    # print("Answer:")
-    # print(result["answer"])
-    # print("Sources:", result["sources"])
+# result = ask_rag("สรุป trigon ให้ฟังหน่อย")
+# print("Answer:")
+# print(result["answer"])
+# print("Sources:", result["sources"])

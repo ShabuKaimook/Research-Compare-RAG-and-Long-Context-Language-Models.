@@ -1,14 +1,16 @@
 from pathlib import Path
 from rag.ingest_file import ingest_file
 
-UPLOAD_DIR = Path("./assets")
+# UPLOAD_DIR = Path("./assets")
+# UPLOAD_DIR = Path("./assets/test02/document.txt")
 
 
-def auto_ingest(db):
-    if not UPLOAD_DIR.exists():
+def auto_ingest(db, path):
+    path = Path(path)
+    if not path.exists():
         return
 
-    for file in UPLOAD_DIR.iterdir():
+    for file in path.iterdir():
         if not file.is_file():
             continue
 
